@@ -1,0 +1,17 @@
+# LaTeX sources (private)
+*.tex
+*.bib
+
+# Build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
