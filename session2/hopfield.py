@@ -63,8 +63,11 @@ class HopfieldNetwork:
         self.alg = alg
         self._targets = np.atleast_2d(np.asarray(targets, dtype=float))
         self._set_weights(self._targets.T, alg)
+        # For Hebb we need a proper bipolar step: np.sign(0) returns 0, which
+        # silently creates states outside {-1, +1} and breaks the energy-descent
+        # guarantee even for asynchronous updates.  Convention: tie → +1.
         self.tf = {
-            'Hebb': np.sign,
+            'Hebb': lambda x: np.where(x >= 0, 1.0, -1.0),
             'LSSM': lambda x: np.clip(x, -1, 1),
         }.get(alg)
         self.int_inv_tf = {
@@ -122,7 +125,8 @@ class HopfieldNetwork:
         num_iter : int
             Number of update steps.
         sync : bool
-            ``True`` for synchronous update, ``False`` for asynchronous.
+            ``True`` for synchronous update (all neurons updated at once),
+            ``False`` for asynchronous (one neuron at a time, random order).
 
         Returns
         -------
@@ -131,6 +135,15 @@ class HopfieldNetwork:
             (P, D, num_iter+1) for multiple inputs.
         energies : ndarray
             Energies at each step -- shape (num_iter+1,) or (P, num_iter+1).
+
+        Notes
+        -----
+        **Energy monotonicity**: the Lyapunov proof that energy never increases
+        applies *only* to asynchronous updates (``sync=False``).  With
+        synchronous updates (``sync=True``, the default) the network is still
+        guaranteed to converge but the energy **can transiently rise** before
+        settling.  If you observe increasing energy and want strict descent,
+        switch to ``sync=False``.
         """
         data = np.atleast_2d(np.asarray(data, dtype=float))
         states = np.empty((*data.shape, num_iter + 1))
@@ -392,7 +405,8 @@ class HopfieldNetwork:
         plt.tight_layout()
         return fig, ax
 
-    def plot_energy_over_time(self, energies, ax=None, labels=None):
+    def plot_energy_over_time(self, energies, ax=None, labels=None,
+                              sync=None):
         """
         Plot energy vs. iteration for one or more trajectories.
 
@@ -401,6 +415,9 @@ class HopfieldNetwork:
         energies : ndarray
             Shape (T,) for one trajectory or (P, T) for several.
         labels : list of str, optional
+        sync : bool or None
+            Pass the same ``sync`` value used in ``simulate`` to annotate
+            the plot with a reminder about energy monotonicity.
         """
         import matplotlib.pyplot as plt
 
@@ -413,8 +430,26 @@ class HopfieldNetwork:
             lbl = labels[i] if labels else f'Trajectory {i}'
             ax.plot(e, 'o-', markersize=3, linewidth=1.5, label=lbl)
         ax.set_xlabel('Iteration')
-        ax.set_ylabel('Energy')
-        ax.set_title('Energy Evolution')
+        ax.set_ylabel('Energy  E(s)')
+
+        # Annotate with update-rule note so students understand any rises.
+        if sync is True:
+            note = ('Synchronous update — energy rises are expected\n'
+                    '(monotone descent only holds for async updates)')
+            title = 'Energy Evolution  [sync]'
+        elif sync is False:
+            note = 'Asynchronous update — energy is monotonically non-increasing'
+            title = 'Energy Evolution  [async]'
+        else:
+            note = ('Tip: pass sync=True/False to annotate monotonicity guarantee')
+            title = 'Energy Evolution'
+
+        ax.set_title(title)
+        ax.text(0.02, 0.04, note, transform=ax.transAxes,
+                fontsize=7.5, color='dimgray',
+                verticalalignment='bottom',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='lightyellow',
+                          edgecolor='goldenrod', alpha=0.8))
         if energies.shape[0] <= 12:
             ax.legend(fontsize=8)
         ax.grid(True, alpha=0.3)
