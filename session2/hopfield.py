@@ -27,7 +27,7 @@ class NormalizationParameters:
     M: float
 
 
-class HopfieldNetwork:
+class HopfieldNetwork:    
     """
     Hopfield network for associative memory with analysis and visualization.
 
@@ -35,9 +35,9 @@ class HopfieldNetwork:
     Given a (possibly corrupted) input the network evolves toward the nearest
     stored pattern.
 
-    Parameters
-    ----------
-    targets : array_like
+        Parameters
+        ----------
+        targets : array_like
         Matrix (T, D) -- T target patterns each of dimension D.
     alg : {'LSSM', 'Hebb'}, default 'LSSM'
         Learning algorithm.  'Hebb' uses Hebbian learning; 'LSSM' uses the
@@ -867,15 +867,29 @@ class HopfieldNetwork:
         fig.colorbar(im_w, ax=ax_w, fraction=0.046, pad=0.04)
         ax_w.set_title('Weights')
 
-        # -- state heatmap --
+        # -- state evolution (adaptive view) --
         ax_h = fig.add_subplot(gs[0, 2:])
         display = states if states.ndim == 2 else states[0]
-        im_h = ax_h.imshow(display, aspect='auto', cmap='RdBu_r',
-                           vmin=-1, vmax=1, interpolation='nearest')
-        ax_h.set_xlabel('Iteration')
-        ax_h.set_ylabel('Neuron')
-        ax_h.set_title('State Evolution')
-        fig.colorbar(im_h, ax=ax_h, fraction=0.02, pad=0.02)
+        if self.D <= 8 and shape is None:
+            # For low-dimensional examples, line plots are easier to interpret
+            # than a heatmap.
+            cmap = plt.colormaps['tab10']
+            for i in range(self.D):
+                ax_h.plot(display[i], '-o', ms=3, lw=1.3,
+                          color=cmap(i), label=f'Neuron {i + 1}')
+            ax_h.set_xlabel('Iteration')
+            ax_h.set_ylabel('Activation')
+            ax_h.set_ylim(-1.1, 1.1)
+            ax_h.set_title('Neuron Activations over Time')
+            ax_h.grid(True, alpha=0.3)
+            ax_h.legend(fontsize=8, ncol=min(4, self.D))
+        else:
+            im_h = ax_h.imshow(display, aspect='auto', cmap='RdBu_r',
+                               vmin=-1, vmax=1, interpolation='nearest')
+            ax_h.set_xlabel('Iteration')
+            ax_h.set_ylabel('Neuron')
+            ax_h.set_title('State Evolution')
+            fig.colorbar(im_h, ax=ax_h, fraction=0.02, pad=0.02)
 
         # -- bottom row --
         if shape is not None:
@@ -893,17 +907,55 @@ class HopfieldNetwork:
             ax_bar = fig.add_subplot(gs[1, :])
             init_v = states[:, 0] if states.ndim == 2 else states[0]
             final_v = states[:, -1] if states.ndim == 2 else states[-1]
-            x = np.arange(self.D)
-            w = 0.35
-            ax_bar.bar(x - w / 2, init_v, w, label='Initial', alpha=0.7,
-                       color='coral')
-            ax_bar.bar(x + w / 2, final_v, w, label='Final', alpha=0.7,
-                       color='steelblue')
-            ax_bar.set_xlabel('Neuron')
-            ax_bar.set_ylabel('Activation')
-            ax_bar.set_title('Initial vs Final State')
-            ax_bar.legend()
-            ax_bar.grid(True, alpha=0.3)
+            if self.D == 2:
+                ax_bar.plot(display[0], display[1], '-o', ms=4, lw=1.3,
+                            color='steelblue', label='Trajectory')
+                ax_bar.plot(display[0, 0], display[1, 0], 's', ms=9,
+                            color='green', label='Start')
+                ax_bar.plot(display[0, -1], display[1, -1], '*', ms=13,
+                            color='red', label='End')
+                ax_bar.scatter(self._targets[:, 0], self._targets[:, 1],
+                               marker='D', s=90, c='gold',
+                               edgecolors='black', label='Targets')
+                ax_bar.set_xlim(-1.3, 1.3)
+                ax_bar.set_ylim(-1.3, 1.3)
+                ax_bar.set_aspect('equal')
+                ax_bar.set_xlabel('Neuron 1')
+                ax_bar.set_ylabel('Neuron 2')
+                ax_bar.set_title('State-Space Trajectory')
+                ax_bar.legend(fontsize=8)
+                ax_bar.grid(True, alpha=0.3)
+            elif self.D == 3:
+                # Replace with 3D axis for clearer geometric interpretation.
+                fig.delaxes(ax_bar)
+                ax3 = fig.add_subplot(gs[1, :], projection='3d')
+                ax3.plot(display[0], display[1], display[2], '-o', ms=4,
+                         lw=1.3, color='steelblue')
+                ax3.scatter(*display[:, 0], s=90, marker='s', c='green',
+                            depthshade=False, label='Start')
+                ax3.scatter(*display[:, -1], s=130, marker='*', c='red',
+                            depthshade=False, label='End')
+                ax3.scatter(self._targets[:, 0], self._targets[:, 1],
+                            self._targets[:, 2], marker='D', s=90, c='gold',
+                            edgecolors='black', depthshade=False,
+                            label='Targets')
+                ax3.set_xlabel('N1')
+                ax3.set_ylabel('N2')
+                ax3.set_zlabel('N3')
+                ax3.set_title('State-Space Trajectory (3D)')
+                ax3.legend(fontsize=8)
+            else:
+                x = np.arange(self.D)
+                w = 0.35
+                ax_bar.bar(x - w / 2, init_v, w, label='Initial', alpha=0.7,
+                           color='coral')
+                ax_bar.bar(x + w / 2, final_v, w, label='Final', alpha=0.7,
+                           color='steelblue')
+                ax_bar.set_xlabel('Neuron')
+                ax_bar.set_ylabel('Activation')
+                ax_bar.set_title('Initial vs Final State')
+                ax_bar.legend()
+                ax_bar.grid(True, alpha=0.3)
 
         fig.suptitle('Hopfield Network Dashboard', fontsize=14, y=1.01)
         plt.tight_layout()
@@ -926,9 +978,14 @@ class HopfieldNetwork:
         n = len(data_list)
         all_energies = []
         all_finals = []
+        all_initials = []
+        all_states = []
         for d in data_list:
             st, en = self.simulate(d, num_iter=num_iter, sync=sync)
             all_energies.append(en)
+            all_states.append(st)
+            init = st[:, 0] if st.ndim == 2 else np.asarray(d, dtype=float)
+            all_initials.append(init)
             final = st[:, -1] if st.ndim == 2 else st
             all_finals.append(final)
 
@@ -944,19 +1001,66 @@ class HopfieldNetwork:
         axes[0].legend(fontsize=8)
         axes[0].grid(True, alpha=0.3)
 
-        # Final states grouped bar
-        x = np.arange(self.D)
-        width = 0.8 / n
         cmap = plt.colormaps['tab10']
-        for i, f in enumerate(all_finals):
-            lbl = labels[i] if labels else f'Init {i}'
-            axes[1].bar(x + i * width, f, width, label=lbl, alpha=0.8,
-                        color=cmap(i))
-        axes[1].set_xlabel('Neuron')
-        axes[1].set_ylabel('Final Activation')
-        axes[1].set_title('Final States')
-        axes[1].legend(fontsize=8)
-        axes[1].grid(True, alpha=0.3)
+
+        if self.D == 2:
+            # Replace grouped bars with a geometric view of convergence.
+            axf = axes[1]
+            for i, st in enumerate(all_states):
+                lbl = labels[i] if labels else f'Init {i}'
+                axf.plot(st[0], st[1], '-o', ms=3, lw=1.1,
+                         color=cmap(i), alpha=0.9, label=lbl)
+                axf.plot(st[0, 0], st[1, 0], 'o', ms=7,
+                         mfc='none', mec=cmap(i), mew=1.5)
+                axf.plot(st[0, -1], st[1, -1], '*', ms=11, color=cmap(i))
+            axf.scatter(self._targets[:, 0], self._targets[:, 1],
+                        marker='D', s=95, c='gold', edgecolors='black',
+                        label='Targets')
+            axf.set_xlim(-1.3, 1.3)
+            axf.set_ylim(-1.3, 1.3)
+            axf.set_aspect('equal')
+            axf.set_xlabel('Neuron 1')
+            axf.set_ylabel('Neuron 2')
+            axf.set_title('Convergence in State Space')
+            if n <= 10:
+                axf.legend(fontsize=8)
+            axf.grid(True, alpha=0.3)
+        elif self.D == 3:
+            # Use a 3D panel instead of grouped bars.
+            fig.delaxes(axes[1])
+            ax3 = fig.add_subplot(1, 2, 2, projection='3d')
+            for i, st in enumerate(all_states):
+                lbl = labels[i] if labels else f'Init {i}'
+                ax3.plot(st[0], st[1], st[2], '-o', ms=3, lw=1.1,
+                         color=cmap(i), alpha=0.9, label=lbl)
+                ax3.scatter(*st[:, 0], s=50, marker='o', facecolors='none',
+                            edgecolors=[cmap(i)], depthshade=False)
+                ax3.scatter(*st[:, -1], s=80, marker='*', c=[cmap(i)],
+                            depthshade=False)
+            ax3.scatter(self._targets[:, 0], self._targets[:, 1],
+                        self._targets[:, 2], marker='D', s=90, c='gold',
+                        edgecolors='black', depthshade=False, label='Targets')
+            ax3.set_xlabel('N1')
+            ax3.set_ylabel('N2')
+            ax3.set_zlabel('N3')
+            ax3.set_title('Convergence in State Space (3D)')
+            if n <= 8:
+                ax3.legend(fontsize=7)
+            axes = np.array([axes[0], ax3], dtype=object)
+        else:
+            # For high-D, show final-state heatmap instead of grouped bars.
+            finals = np.asarray(all_finals)
+            axf = axes[1]
+            im = axf.imshow(finals, aspect='auto', cmap='RdBu_r',
+                            vmin=-1, vmax=1, interpolation='nearest')
+            axf.set_xlabel('Neuron index')
+            axf.set_ylabel('Trajectory')
+            axf.set_title('Final States (heatmap)')
+            ylabels = labels if labels else [f'Init {i}' for i in range(n)]
+            if n <= 25:
+                axf.set_yticks(np.arange(n))
+                axf.set_yticklabels(ylabels, fontsize=8)
+            fig.colorbar(im, ax=axf, fraction=0.046, pad=0.04)
 
         plt.tight_layout()
         return fig, axes
